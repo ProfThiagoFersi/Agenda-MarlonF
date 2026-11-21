@@ -12,14 +12,15 @@ import {
   AGENDAMENTOS_INICIAIS,
   PRECO_PACOTE
 } from './data/therapyData';
-import { carregarConfiguracaoPrecos, salvarConfiguracaoPrecos } from './utils/pricingUtils';
+import { carregarConfiguracaoPrecos, salvarConfiguracaoPrecos, STORAGE_KEY_PRECOS, CONFIG_PRECOS_PADRAO } from './utils/pricingUtils';
 import { formatarMoeda, obterHojeString } from './utils/dateUtils';
 import { 
   carregarRecorrencias, 
   salvarRecorrencias, 
   gerarAgendamentosParaMes,
   criarRecorrenciaConfig,
-  obterDatasDoDiaSemanaNoMes 
+  obterDatasDoDiaSemanaNoMes,
+  STORAGE_RECORRENCIAS
 } from './utils/recurrenceUtils';
 import { Header, AbaNavegacao } from './components/Header';
 import { QuickStats } from './components/QuickStats';
@@ -91,9 +92,10 @@ export default function App() {
     return []; // Inicia com banco de dados zerado
   });
 
-  // Estado de Autenticação & Sincronização em Nuvem (Supabase)
+  // Estado de Autenticação & Sincronização em Nuvem (Supabase ou Acesso Local)
   const supabaseConfigured = isSupabaseConfigured();
   const [session, setSession] = useState<Session | null>(null);
+  const [localUserLogin, setLocalUserLogin] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState<boolean>(supabaseConfigured);
   const [cloudLoading, setCloudLoading] = useState<boolean>(false);
   const [migracaoLocalPendente, setMigracaoLocalPendente] = useState<{
@@ -266,13 +268,35 @@ export default function App() {
     }
   };
 
-  const handleLogout = async () => {
-    if (!supabase) return;
-    await supabase.auth.signOut();
+  const handleResetLocalAllData = () => {
     setPacientes([]);
     setAgendamentos([]);
     setRecorrencias([]);
-    setMigracaoLocalPendente(null);
+    setConfigPrecos(CONFIG_PRECOS_PADRAO);
+    setAgendamentoDetalhe(null);
+    setAgendamentoParaEditar(null);
+    setNotificacao(null);
+    localStorage.removeItem(STORAGE_PACIENTES);
+    localStorage.removeItem(STORAGE_AGENDAMENTOS);
+    localStorage.removeItem(LEGACY_STORAGE_PACIENTES);
+    localStorage.removeItem(LEGACY_STORAGE_AGENDAMENTOS);
+    localStorage.removeItem(STORAGE_RECORRENCIAS);
+    localStorage.removeItem(STORAGE_KEY_PRECOS);
+  };
+
+  const handleLogout = async () => {
+    setAgendamentoDetalhe(null);
+    setAgendamentoParaEditar(null);
+    setNotificacao(null);
+    if (supabaseConfigured && supabase) {
+      await supabase.auth.signOut();
+      setPacientes([]);
+      setAgendamentos([]);
+      setRecorrencias([]);
+      setMigracaoLocalPendente(null);
+      return;
+    }
+    setLocalUserLogin(null);
   };
 
   // Feedback Notification
@@ -774,6 +798,17 @@ export default function App() {
     return <AuthGate />;
   }
 
+  if (!supabaseConfigured && !localUserLogin) {
+    return (
+      <AuthGate
+        onLocalAuthSuccess={(loginDisplay) => setLocalUserLogin(loginDisplay)}
+        onResetLocalAllData={handleResetLocalAllData}
+      />
+    );
+  }
+
+  const activeUserEmail = supabaseConfigured ? session?.user?.email : localUserLogin;
+
   return (
     <div className="min-h-screen bg-stone-100 text-stone-900 flex flex-col font-sans selection:bg-teal-200">
       {/* Indicador de Status Offline / PWA */}
@@ -789,8 +824,8 @@ export default function App() {
           setHorarioPredefinido('09:00');
           setIsModalNovoAgendamentoOpen(true);
         }}
-        userEmail={session?.user?.email}
-        onLogout={supabaseConfigured ? handleLogout : undefined}
+        userEmail={activeUserEmail}
+        onLogout={handleLogout}
       />
 
       {/* Main Container */}
@@ -948,8 +983,8 @@ export default function App() {
             onAbrirGestaoRecorrentes={() => setIsModalRecurringSchedulesOpen(true)}
             totalRecorrentes={recorrencias.filter((r) => r.ativo).length}
             supabaseConfigured={supabaseConfigured}
-            userEmail={session?.user?.email}
-            onLogout={supabaseConfigured ? handleLogout : undefined}
+            userEmail={activeUserEmail}
+            onLogout={handleLogout}
           />
         )}
       </main>

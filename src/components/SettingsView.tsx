@@ -22,7 +22,12 @@ import {
   Repeat,
   Clock,
   Cloud,
-  LogOut
+  LogOut,
+  KeyRound,
+  Lock,
+  Eye,
+  EyeOff,
+  AlertCircle
 } from 'lucide-react';
 import { Paciente, Agendamento, ConfiguracaoPrecos } from '../types';
 import { 
@@ -32,6 +37,8 @@ import {
   CONFIG_PRECOS_PADRAO
 } from '../utils/pricingUtils';
 import { formatarMoeda } from '../utils/dateUtils';
+import { supabase } from '../lib/supabaseClient';
+import { updateLocalPassword } from '../utils/localAuth';
 
 interface SettingsViewProps {
   configPrecos: ConfiguracaoPrecos;
@@ -81,7 +88,56 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [confirmarZerar, setConfirmarZerar] = useState(false);
   const [mensagemSucesso, setMensagemSucesso] = useState<string | null>(null);
 
+  // Alteração de senha (local ou Supabase)
+  const [mostrarFormSenha, setMostrarFormSenha] = useState(false);
+  const [senhaAtual, setSenhaAtual] = useState('');
+  const [novaSenha, setNovaSenha] = useState('');
+  const [confirmarNovaSenha, setConfirmarNovaSenha] = useState('');
+  const [mostrarSenhas, setMostrarSenhas] = useState(false);
+  const [alterandoSenha, setAlterandoSenha] = useState(false);
+  const [erroSenha, setErroSenha] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAlterarSenha = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErroSenha(null);
+
+    if (novaSenha.length < 6) {
+      setErroSenha('A nova senha deve ter no mínimo 6 caracteres.');
+      return;
+    }
+    if (novaSenha !== confirmarNovaSenha) {
+      setErroSenha('A confirmação da nova senha não confere.');
+      return;
+    }
+
+    setAlterandoSenha(true);
+    try {
+      if (supabaseConfigured && supabase) {
+        const { error } = await supabase.auth.updateUser({ password: novaSenha });
+        if (error) throw error;
+      } else {
+        if (!senhaAtual) {
+          setErroSenha('Informe sua senha atual.');
+          setAlterandoSenha(false);
+          return;
+        }
+        await updateLocalPassword(senhaAtual, novaSenha);
+      }
+
+      setSenhaAtual('');
+      setNovaSenha('');
+      setConfirmarNovaSenha('');
+      setMostrarFormSenha(false);
+      setMensagemSucesso('Senha de acesso alterada com sucesso!');
+      setTimeout(() => setMensagemSucesso(null), 3500);
+    } catch (err: any) {
+      setErroSenha(err?.message || 'Não foi possível alterar a senha.');
+    } finally {
+      setAlterandoSenha(false);
+    }
+  };
 
   const tempConfig: ConfiguracaoPrecos = {
     precoAvulso: precoAvulso > 0 ? precoAvulso : 0,
@@ -205,17 +261,21 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </div>
       )}
 
-      {/* 0. SEÇÃO DE NUVEM E DEPLOY WEB (SUPABASE + VERCEL) */}
+      {/* 0. SEÇÃO DE ACESSO, SENHA E NUVEM (SUPABASE + VERCEL) */}
       <section className="bg-white rounded-2xl border border-stone-200 shadow-xs overflow-hidden">
         <div className="p-4 sm:p-5 border-b border-stone-100 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center border border-teal-100">
-              <Cloud className="w-4 h-4" />
+              {supabaseConfigured ? <Cloud className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
             </div>
             <div>
-              <h3 className="text-sm font-bold text-stone-900">Sincronização Web na Nuvem (Supabase)</h3>
+              <h3 className="text-sm font-bold text-stone-900">
+                Acesso, Senha & Sincronização Web
+              </h3>
               <p className="text-xs text-stone-500">
-                Armazenamento PostgreSQL em nuvem com autenticação segura para uso na Web (Vercel)
+                {supabaseConfigured
+                  ? 'Armazenamento PostgreSQL em nuvem com autenticação segura (Supabase)'
+                  : 'Proteção de acesso por login e senha no dispositivo e preparo para nuvem'}
               </p>
             </div>
           </div>
@@ -224,41 +284,163 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               Conectado na Nuvem
             </span>
           ) : (
-            <span className="text-[11px] font-semibold bg-amber-50 text-amber-800 px-2.5 py-0.5 rounded-full border border-amber-200 shrink-0">
-              Modo Local (Offline)
+            <span className="text-[11px] font-semibold bg-teal-100 text-teal-800 px-2.5 py-0.5 rounded-full border border-teal-300 shrink-0">
+              Acesso Local Protegido
             </span>
           )}
         </div>
 
-        <div className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          {supabaseConfigured && userEmail ? (
-            <>
-              <div className="space-y-1 text-xs">
+        <div className="p-4 sm:p-5 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1 text-xs">
+              {userEmail && (
                 <p className="text-stone-700">
                   Sessão autenticada como <strong className="text-stone-900">{userEmail}</strong>.
                 </p>
-                <p className="text-[11px] text-stone-500">
-                  Todos os pacientes, evoluções, agendamentos e configurações estão sendo sincronizados com segurança no Supabase.
-                </p>
-              </div>
+              )}
+              <p className="text-[11px] text-stone-500">
+                {supabaseConfigured
+                  ? 'Todos os pacientes, evoluções, agendamentos e configurações estão sendo sincronizados com segurança no Supabase.'
+                  : 'O acesso aos prontuários está protegido por login e senha neste dispositivo (armazenamento local).'}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setErroSenha(null);
+                  setMostrarFormSenha((v) => !v);
+                }}
+                className="px-3.5 py-2 bg-teal-50 hover:bg-teal-100 border border-teal-200 text-teal-900 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+              >
+                <KeyRound className="w-3.5 h-3.5" />
+                <span>{mostrarFormSenha ? 'Fechar Senha' : 'Alterar Senha'}</span>
+              </button>
+
               {onLogout && (
                 <button
                   type="button"
                   onClick={onLogout}
-                  className="px-4 py-2 bg-stone-100 hover:bg-stone-200 border border-stone-300 text-stone-800 rounded-xl text-xs font-bold transition-colors shrink-0 flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="px-4 py-2 bg-stone-100 hover:bg-stone-200 border border-stone-300 text-stone-800 rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <LogOut className="w-3.5 h-3.5" />
-                  <span>Encerrar Sessão</span>
+                  <span>{supabaseConfigured ? 'Encerrar Sessão' : 'Bloquear / Sair'}</span>
                 </button>
               )}
-            </>
-          ) : (
-            <div className="space-y-1.5 text-xs text-stone-600">
-              <p>
-                Os dados atuais estão sendo gravados localmente neste navegador. Para ativar o banco na nuvem ao publicar na <strong>Vercel</strong>:
+            </div>
+          </div>
+
+          {mostrarFormSenha && (
+            <form
+              onSubmit={handleAlterarSenha}
+              className="p-4 bg-stone-50 border border-stone-200 rounded-xl space-y-3"
+            >
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-stone-900 flex items-center gap-1.5">
+                  <KeyRound className="w-3.5 h-3.5 text-teal-700" />
+                  <span>Alterar Senha de Acesso</span>
+                </h4>
+                <button
+                  type="button"
+                  onClick={() => setMostrarSenhas((v) => !v)}
+                  className="text-[11px] text-stone-500 hover:text-stone-800 flex items-center gap-1 cursor-pointer"
+                >
+                  {mostrarSenhas ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  <span>{mostrarSenhas ? 'Ocultar' : 'Mostrar'}</span>
+                </button>
+              </div>
+
+              {erroSenha && (
+                <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>{erroSenha}</span>
+                </div>
+              )}
+
+              <div className={`grid grid-cols-1 ${supabaseConfigured ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-3`}>
+                {!supabaseConfigured && (
+                  <div>
+                    <label className="block text-[11px] font-semibold text-stone-700 mb-1">
+                      Senha Atual
+                    </label>
+                    <input
+                      type={mostrarSenhas ? 'text' : 'password'}
+                      required
+                      autoComplete="current-password"
+                      value={senhaAtual}
+                      onChange={(e) => setSenhaAtual(e.target.value)}
+                      placeholder="Digite a senha atual"
+                      className="w-full px-3 py-2 bg-white border border-stone-300 rounded-lg text-xs focus:ring-2 focus:ring-teal-700 focus:outline-hidden"
+                    />
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-stone-700 mb-1">
+                    Nova Senha
+                  </label>
+                  <input
+                    type={mostrarSenhas ? 'text' : 'password'}
+                    required
+                    minLength={6}
+                    autoComplete="new-password"
+                    value={novaSenha}
+                    onChange={(e) => setNovaSenha(e.target.value)}
+                    placeholder="Mínimo 6 caracteres"
+                    className="w-full px-3 py-2 bg-white border border-stone-300 rounded-lg text-xs focus:ring-2 focus:ring-teal-700 focus:outline-hidden"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-stone-700 mb-1">
+                    Confirmar Nova Senha
+                  </label>
+                  <input
+                    type={mostrarSenhas ? 'text' : 'password'}
+                    required
+                    minLength={6}
+                    autoComplete="new-password"
+                    value={confirmarNovaSenha}
+                    onChange={(e) => setConfirmarNovaSenha(e.target.value)}
+                    placeholder="Repita a nova senha"
+                    className="w-full px-3 py-2 bg-white border border-stone-300 rounded-lg text-xs focus:ring-2 focus:ring-teal-700 focus:outline-hidden"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMostrarFormSenha(false);
+                    setErroSenha(null);
+                    setSenhaAtual('');
+                    setNovaSenha('');
+                    setConfirmarNovaSenha('');
+                  }}
+                  className="px-3 py-1.5 rounded-lg text-xs font-semibold text-stone-600 hover:bg-stone-200/70 transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={alterandoSenha}
+                  className="px-4 py-1.5 rounded-lg text-xs font-bold bg-teal-700 hover:bg-teal-800 disabled:opacity-60 text-white transition-colors cursor-pointer"
+                >
+                  {alterandoSenha ? 'Salvando...' : 'Atualizar Senha'}
+                </button>
+              </div>
+            </form>
+          )}
+
+          {!supabaseConfigured && (
+            <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl text-[11px] text-amber-950 space-y-1">
+              <p className="font-semibold">
+                Sincronização na nuvem (opcional para publicar na Vercel):
               </p>
-              <p className="text-[11px] text-stone-500">
-                Execute o script <code className="bg-stone-100 px-1.5 py-0.5 rounded">supabase/schema.sql</code> no seu projeto Supabase e adicione <code className="bg-stone-100 px-1.5 py-0.5 rounded">VITE_SUPABASE_URL</code> e <code className="bg-stone-100 px-1.5 py-0.5 rounded">VITE_SUPABASE_ANON_KEY</code> nas variáveis de ambiente da Vercel.
+              <p className="text-amber-900">
+                Execute o script <code className="bg-white/80 px-1.5 py-0.5 rounded">supabase/schema.sql</code> no seu projeto Supabase e adicione <code className="bg-white/80 px-1.5 py-0.5 rounded">VITE_SUPABASE_URL</code> e <code className="bg-white/80 px-1.5 py-0.5 rounded">VITE_SUPABASE_ANON_KEY</code> nas variáveis de ambiente da Vercel.
               </p>
             </div>
           )}
